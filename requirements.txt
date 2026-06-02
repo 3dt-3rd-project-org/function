@@ -1,0 +1,9 @@
+azure-functions
+azure-storage-blob
+psycopg2-binary
+python-dotenv
+ebooklib
+beautifulsoup4
+lxml
+pandas
+openai
