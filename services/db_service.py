@@ -3,7 +3,6 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-
 def get_conn():
     return psycopg2.connect(
         host=os.environ["PGHOST"],
@@ -85,8 +84,6 @@ def save_chapters_and_paragraphs(conn, books_id: int, rows: list[dict]):
             "chapter_count": len(chapter_map),
             "paragraph_count": len(rows)
         }
-    
-
 
 
 # 26.6.4 -- 미연
