@@ -62,7 +62,7 @@ role_in_event:
 친구
 
 relation:
-- 반드시 한 단어로 작성하라.
+- 반드시 한 단어로 작성하라. 예제를 설정하긴 하지만 상황에 맞지 않다고 판단하면 새로운 단어를 생성가능하다.
 - 예:
 조력
 협박
@@ -72,22 +72,38 @@ relation:
 신뢰
 의존
 경계
+거리두기
+단절
+적대
+제압
 
 change_summary:
 - 왜 이 관계인지 초등학생도 이해할 수 있게 한 문장으로 설명하라.
+
+events는 챕터의 핵심 사건 4~6개만 추출하라.
+한 event 안에 서로 다른 결과가 2개 이상 섞이면 분리하라.
+
 relationships 작성 규칙:
 - relation은 그래프 엣지 라벨로 사용할 짧은 단어로 작성하라.
-- relation은 2~6글자 정도의 명사형 또는 짧은 관계명으로 작성하라.
-- 예: 협박, 조력, 보호, 갈등, 의존, 거리두기, 화해, 제압, 신뢰
+- relationships는 반드시 events를 기준으로 생성하라.
+- relationship은 특정 event와 연결되어야 한다.
 - relation에 긴 문장이나 여러 관계를 한꺼번에 넣지 마라.
 - change_summary는 사용자가 이해하기 쉬운 말투로 1문장만 작성하라.
 - change_summary는 “왜 이 관계로 판단했는지” 설명하는 문장이어야 한다.
 - 문학 평론식 표현, 과한 은유, 추상적 표현은 피하라.
 - evidence는 원문에서 근거가 되는 짧은 문장 일부만 넣어라.
+- relationships는 핵심 인물 사이의 관계 변화만 추출하라.
+- relationships는 기본적으로 3~7개 추출할 수 있다. 
+- 인물 관계가 사건 이후 달라졌다면 별도 relationship으로 생성하라.
+- 같은 인물 쌍이라도 관계가 변하면 각각 별도의 relationship으로 추출하라.
+- 관계 변화가 이야기 전개에 중요하면 7개를 초과해도 추출하라.
+- 후반부에 발생한 관계 변화도 누락하지 마라.
+- 단순히 같은 사건에 함께 등장했다는 이유만으로 관계를 만들지 마라.
 
-related_event_summary:
-- 반드시 events 배열에 있는 short_title 중 하나를 그대로 사용하라.
-- 새 문장을 만들지 마라.
+relationships의 start_paragraph_order와 end_paragraph_order는 관계 변화가 실제로 드러나는 문단 범위로 작성하라.
+반드시 제공된 [문단 번호] 기준으로 작성하라.
+related_event_short_title은 events 배열의 short_title 중 하나를 그대로 사용하라.
+source는 행동을 한 인물, target은 영향을 받은 인물로 작성하라.
 
 추출 기준:
 - characters는 서사 진행에 중요한 인물만 추출하라.
@@ -105,9 +121,6 @@ related_event_summary:
 - 원문에 등장하는 호칭을 우선 사용하라.
 - 동일 인물의 여러 호칭은 하나로 통일하라.
 - 인물명은 원문 번역명 기준의 한국어 표기로 작성하라.
-- events는 챕터의 핵심 사건 3~4개만 추출하라.
-- 사건은 너무 잘게 쪼개지 말고 원인-갈등-결과가 이어지는 단위로 묶어라.
-- relationships는 핵심 인물 사이의 관계 변화만 2~5개 추출하라.
 - evidence는 원문에서 근거가 되는 문장 일부를 넣어라.
 - start_paragraph_order와 end_paragraph_order는 제공된 [문단 번호] 기준으로 작성하라.
 
@@ -143,7 +156,9 @@ related_event_summary:
       "relation": "",
       "change_summary": "",
       "evidence": "",
-      "related_event_summary": ""
+      "related_event_short_title": "",
+      "start_paragraph_order": 0,
+      "end_paragraph_order": 0
     }}
   ]
 }}

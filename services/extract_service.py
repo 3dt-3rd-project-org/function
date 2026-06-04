@@ -4,10 +4,7 @@ from services.openai_service import extract_chapter_analysis
 
 
 def run_openai_extract(conn, books_id: int):
-
     with conn.cursor() as cur:
-
-        # 챕터 목록 조회
         cur.execute(
             """
             SELECT chapter_id, chapter_order, title
@@ -21,22 +18,15 @@ def run_openai_extract(conn, books_id: int):
         chapters = cur.fetchall()
 
         if not chapters:
-            return {
-                "error": "chapter not found"
-            }
-
-        # 첫 챕터만 테스트
-        chapters = chapters[2:3]
+            return {"error": "chapter not found"}
 
         all_results = []
 
         for chapter_id, chapter_order, chapter_title in chapters:
-
             print("\n" + "=" * 80)
             print(f"CHAPTER START : {chapter_title}")
             print("=" * 80)
 
-            # 문단 조회
             cur.execute(
                 """
                 SELECT paragraph_id,
@@ -62,10 +52,7 @@ def run_openai_extract(conn, books_id: int):
                 ]
             )
 
-            print(
-                f"Paragraph Count : {len(paragraphs)}"
-            )
-
+            print(f"Paragraph Count : {len(paragraphs)}")
             print("Calling GPT...")
 
             result = extract_chapter_analysis(
@@ -74,33 +61,57 @@ def run_openai_extract(conn, books_id: int):
             )
 
             print("GPT Done")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
 
-            print("\n")
-            print("=" * 80)
-            print("GPT RESULT")
-            print("=" * 80)
-
-            print(
-                json.dumps(
-                    result,
-                    ensure_ascii=False,
-                    indent=2
+            # =========================
+            # Raw JSON 저장
+            # =========================
+            cur.execute(
+                """
+                INSERT INTO chapter_analysis_raw (
+                    books_id,
+                    chapter_id,
+                    chapter_order,
+                    chapter_title,
+                    raw_json,
+                    status,
+                    updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s::jsonb, 'RAW', CURRENT_TIMESTAMP)
+                ON CONFLICT (books_id, chapter_id)
+                DO UPDATE SET
+                    chapter_order = EXCLUDED.chapter_order,
+                    chapter_title = EXCLUDED.chapter_title,
+                    raw_json = EXCLUDED.raw_json,
+                    status = 'RAW',
+                    updated_at = CURRENT_TIMESTAMP;
+                """,
+                (
+                    books_id,
+                    chapter_id,
+                    chapter_order,
+                    chapter_title,
+                    json.dumps(result, ensure_ascii=False)
                 )
             )
 
-            print("=" * 80)
-            print("\n")
+            conn.commit()
 
             all_results.append(
                 {
                     "chapter_id": chapter_id,
+                    "chapter_order": chapter_order,
                     "chapter_title": chapter_title,
-                    "result": result
+                    "character_count": len(result.get("characters", [])),
+                    "event_count": len(result.get("events", [])),
+                    "relationship_count": len(result.get("relationships", [])),
+                    "status": "RAW_SAVED"
                 }
             )
 
         return {
             "status": "success",
+            "message": "chapter raw analysis saved",
             "books_id": books_id,
             "chapter_count": len(all_results),
             "results": all_results
