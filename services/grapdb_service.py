@@ -3,9 +3,9 @@ import os
 from neo4j import GraphDatabase
 
 # Neo4j 환경 변수
-NEO4J_URI = os.environ("NEO4J_URI")
-NEO4J_USER = os.environ("NEO4J_USER")
-NEO4J_PASSWORD = os.environ("NEO4J_PASSWORD")
+NEO4J_URI = os.environ.get("NEO4J_URI")
+NEO4J_USER = os.environ.get("NEO4J_USER")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 
 # [수정] 드라이버 객체를 전역 공간에 딱 1번만 빌드하여 싱글톤 커넥션 풀로 재사용합니다.
 if NEO4J_URI and NEO4J_USER and NEO4J_PASSWORD:

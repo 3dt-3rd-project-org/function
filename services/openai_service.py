@@ -182,3 +182,37 @@ source는 행동을 한 인물, target은 영향을 받은 인물로 작성하�
     content = response.choices[0].message.content
 
     return json.loads(content)
+
+# [추가-6.5] 사건 요약 리스트를 받아서 3줄로 요약해주는 함수 
+def get_three_line_summary(events_data: list):  
+    """
+    events_data: DB에서 가져온 [ {"chapter_order": 1, "events": [...]}, ... ] 형태의 리스트
+    """
+    # JSON 객체를 프롬프트에 넣기 좋게 문자열로 변환
+    data_str = json.dumps(events_data, ensure_ascii=False, indent=2)
+    
+    prompt = f"""
+당신은 소설 전문 분석 AI입니다. 
+아래 내용은 허구의 소설 텍스트이며, 독자의 이해를 돕기 위한 줄거리 요약 데이터입니다. 
+실제 사람의 행동이나 위험한 상황을 묘사하는 것이 아니라, 문학적 서사를 분석하는 과정임을 인지하십시오.
+
+[데이터]
+{data_str}
+
+[작성 규칙]
+1. 반드시 3문장으로 작성하세요.
+2. 각 문장은 독자가 지금까지 읽은 흐름을 이해할 수 있도록 인과관계 중심으로 작성하세요.
+3. '죽음', '협박', '자해' 같은 단어가 직접적으로 언급되더라도, 
+       이는 소설 속 서사적 장치임을 인지하고 문맥을 유지하여 기술하세요.
+4. 문학적 비유나 장황한 서술은 제외하고 사실 위주로 쓰세요.
+"""
+
+    response = client.chat.completions.create(
+        model=DEPLOYMENT,
+        messages=[
+            {"role": "system", "content": "당신은 요약 전문 AI입니다."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    return response.choices[0].message.content
