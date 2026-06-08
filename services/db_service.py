@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -240,5 +241,29 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
     finally:
         if cursor:
             cursor.close()
-        if cursor:
-            cursor.close()
+
+# 3줄 요약 저장
+def save_three_line_summary(user_id, book_id, chapter_id, summary):
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        query = """
+        UPDATE readpoint.reading_logs
+        SET three_line_summary = %s
+        WHERE user_id = %s AND book_id = %s AND chapter_id = %s;
+        """
+        cur.execute(query, (summary, user_id, book_id, chapter_id))
+        conn.commit()
+        
+    except Exception as e:
+        if conn:
+            conn.rollback() # 에러 발생 시 트랜잭션 롤백
+        logging.error(f"DB 업데이트 중 오류 발생: {e}")
+        raise e
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()

@@ -11,7 +11,7 @@ from services.db_service import (
 
 from services.blob_service import download_epub_from_blob
 from services.epub_parser import parse_epub
-from services.extract_service import run_openai_extract
+from services.extract_service import run_openai_extract, get_summarized_progress
 from services.normalize_service import run_normalize_characters
 from services.save_normalized_service import run_save_normalized_analysis
 from services.grapdb_service import insert_graph_data
@@ -305,6 +305,7 @@ def migrate_graph_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json",
         )
+
     
 
 
@@ -394,3 +395,45 @@ def relationship_arc_test(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json"
         )
+
+@app.route(route="summarize_reading", methods=["POST"])
+def summarize_reading(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        # 1. 요청 본문에서 파라미터 추출
+        req_body = req.get_json()
+        user_id = req_body.get("user_id")
+        book_id = req_body.get("book_id")
+        chapter_order = req_body.get("chapter_order")
+        last_paragraph = req_body.get("last_paragraph")
+
+        # 입력값 검증
+        if not all([user_id, book_id, chapter_order, last_paragraph]):
+            return func.HttpResponse("필수 파라미터(user_id, book_id, chapter_order, last_paragraph)가 누락되었습니다.", status_code=400)
+
+        # 2. DB 연결 생성 (get_conn 함수 사용)
+        conn = get_conn()
+
+        # 3. 서비스 함수 호출 (DB 조회 및 요약 통합)
+        # 이제 외부에서 넘겨받은 값들을 직접 전달합니다.
+        result = get_summarized_progress(conn, book_id, chapter_order, last_paragraph)
+
+        # 4. 결과 응답
+        if result["status"] == "success":
+            print(f"--- [User: {user_id}] 요약 결과 ---")
+            print(result["summary"])
+            return func.HttpResponse(
+                f"요약 완료: {result['summary']}", 
+                status_code=200
+            )
+        else:
+            return func.HttpResponse(
+                f"요약 실패: {result.get('message')}", 
+                status_code=500
+            )
+
+    except ValueError:
+        return func.HttpResponse("유효한 JSON 본문이 아닙니다.", status_code=400)
+    except Exception as e:
+        logging.error(f"오류 발생: {e}")
+        return func.HttpResponse("서버 내부 오류가 발생했습니다.", status_code=500)
+
