@@ -1,4 +1,6 @@
 import json
+import time
+import logging
 
 from services.openai_service import extract_chapter_analysis
 
@@ -46,26 +48,44 @@ def run_openai_extract(conn, books_id: int):
                 continue
 
             chapter_text = "\n".join(
-                [
-                    f"[문단 {p[1]}] {p[2]}"
-                    for p in paragraphs
-                ]
+                [f"[문단 {p[1]}] {p[2]}" for p in paragraphs]
             )
 
             print(f"Paragraph Count : {len(paragraphs)}")
-            print("Calling GPT...")
 
-            result = extract_chapter_analysis(
-                chapter_title=chapter_title,
-                chapter_text=chapter_text
-            )
+            max_retries = 2
+            last_error = None
+            result = None
+
+            for attempt in range(1, max_retries + 1):
+                try:
+                    print(f"Calling GPT... attempt {attempt}/{max_retries}")
+
+                    result = extract_chapter_analysis(
+                        chapter_title=chapter_title,
+                        chapter_text=chapter_text
+                    )
+
+                    break
+
+                except Exception as e:
+                    last_error = e
+                    logging.exception(
+                        f"GPT extract failed. books_id={books_id}, "
+                        f"chapter_id={chapter_id}, "
+                        f"chapter_order={chapter_order}, "
+                        f"attempt={attempt}/{max_retries}"
+                    )
+
+                    if attempt < max_retries:
+                        time.sleep(2)
+
+            if result is None:
+                raise last_error
 
             print("GPT Done")
             print(json.dumps(result, ensure_ascii=False, indent=2))
 
-            # =========================
-            # Raw JSON 저장
-            # =========================
             cur.execute(
                 """
                 INSERT INTO chapter_analysis_raw (
@@ -97,17 +117,15 @@ def run_openai_extract(conn, books_id: int):
 
             conn.commit()
 
-            all_results.append(
-                {
-                    "chapter_id": chapter_id,
-                    "chapter_order": chapter_order,
-                    "chapter_title": chapter_title,
-                    "character_count": len(result.get("characters", [])),
-                    "event_count": len(result.get("events", [])),
-                    "relationship_count": len(result.get("relationships", [])),
-                    "status": "RAW_SAVED"
-                }
-            )
+            all_results.append({
+                "chapter_id": chapter_id,
+                "chapter_order": chapter_order,
+                "chapter_title": chapter_title,
+                "character_count": len(result.get("characters", [])),
+                "event_count": len(result.get("events", [])),
+                "relationship_count": len(result.get("relationships", [])),
+                "status": "RAW_SAVED"
+            })
 
         return {
             "status": "success",
