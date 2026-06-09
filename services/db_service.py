@@ -98,7 +98,7 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
         # 1. 인물(character) 테이블 조회
         # -------------------------------------------------------------
         char_query = """
-            SELECT character_id, character_name, role, description 
+            SELECT character_id, books_id, character_name, role, description, first_seen_chapter_id, first_seen_paragraph_id, character_type, importance_score 
             FROM readpoint.character 
             WHERE books_id = %s;
         """
@@ -115,8 +115,7 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
         # 2. 사건(event) 테이블 조회
         # -------------------------------------------------------------
         event_query = """
-            SELECT event_id, chapter_id, event_order, summary, evidence, 
-                   start_paragraph_id, end_paragraph_id, short_title
+            SELECT event_id, books_id, chapter_id, event_order, summary, evidence, start_paragraph_id, end_paragraph_id, short_title, event_type, importance_score, is_core_event, is_sensitive
             FROM readpoint.event
             WHERE books_id = %s
             ORDER BY chapter_id ASC, event_order ASC;
@@ -128,7 +127,7 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
         # 3. 사건별 인물 매핑(event_character) 테이블 조회 (INNER JOIN 필수)
         # -------------------------------------------------------------
         ev_char_query = """
-            SELECT ec.event_id, ec.character_id, ec.role_in_event
+            SELECT ec.event_character_id, ec.event_id, ec.character_id, ec.role_in_event
             FROM readpoint.event_character ec
             INNER JOIN readpoint.event e ON ec.event_id = e.event_id
             WHERE e.books_id = %s;
@@ -155,7 +154,9 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
         # -------------------------------------------------------------
         rel_query = """
             SELECT chapter_id, source_character_id, target_character_id, 
-                   relation, change_summary, evidence, start_paragraph_order, end_paragraph_order
+                   relation, change_summary, evidence, 
+                   start_paragraph_order, end_paragraph_order,
+                   relation_category, importance_score, is_core_relation
             FROM readpoint.relationship_change
             WHERE books_id = %s;
         """
@@ -165,74 +166,62 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
         # -------------------------------------------------------------
         # ⚙️ [트리 구조 데이터 조립]
         # -------------------------------------------------------------
-        combined_data = {"books_id": str(target_books_id), "results": []}
-        chapters_map = {}
+        # 모든 유니크한 챕터 ID를 추출하여 정렬 (1, 2, 3... 순서 보장)
+        all_chapter_ids = sorted({str(ev["chapter_id"]) for ev in event_rows} | {str(r["chapter_id"]) for r in rel_rows}, key=int)
+        chapter_order_map = {ch_id: i + 1 for i, ch_id in enumerate(all_chapter_ids)}
 
-        # 챕터별로 사건 및 공통 캐릭터 데이터 기본 뼈대 안착
-        for idx, ev in enumerate(event_rows):
+        chapters_map = {ch_id: {
+            "chapter_id": ch_id,
+            "chapter_order": chapter_order_map[ch_id],
+            "chapter_title": f"{ch_id} 챕터",
+            "characters": characters_rows,
+            "events": [],
+            "relationships": []
+        } for ch_id in all_chapter_ids}
+
+        # 사건 데이터 주입
+        for ev in event_rows:
             ch_id = str(ev["chapter_id"])
-
-            if ch_id not in chapters_map:
-                chapters_map[ch_id] = {
-                    "chapter_id": ch_id,
-                    "chapter_order": idx + 1,        # 순서 및 타이틀은 정규화 테이블에 없으므로 임시 대체
-                    "chapter_title": f"{ch_id} 챕터",
-                    "result": {
-                        "characters": [
-                            {
-                                "name": c["character_name"],
-                                "role": c["role"],
-                                "description": c["description"],
-                            }
-                            for c in characters_rows
-                        ]
-                    },
-                    "events_list": [],
-                    "relationships_list": [],
-                }
-
-            # 이 사건에 속한 인물 목록 조회 및 주입
-            linked_characters = ev_char_map.get(ev["event_id"], [])
-
-            event_item = {
+            chapters_map[ch_id]["events"].append({
                 "summary": ev["summary"],
                 "start_paragraph_order": ev["start_paragraph_id"],
                 "end_paragraph_order": ev["end_paragraph_id"],
-                "characters": linked_characters,
-            }
-            chapters_map[ch_id]["events_list"].append(event_item)
+                "characters": ev_char_map.get(ev["event_id"], []),
+                "event_type": ev.get("event_type"),
+                "importance_score": ev.get("importance_score"),
+                "is_core_event": ev.get("is_core_event")
+            })
 
-        # 관계 변동 데이터를 각 챕터별 맵에 매핑
+        # 관계 데이터 주입
         for rel in rel_rows:
             ch_id = str(rel["chapter_id"])
-            if ch_id in chapters_map:
-                src_name = char_name_map.get(rel["source_character_id"], "Unknown")
-                tgt_name = char_name_map.get(rel["target_character_id"], "Unknown")
+            chapters_map[ch_id]["relationships"].append({
+                "source": char_name_map.get(rel["source_character_id"], "Unknown"),
+                "target": char_name_map.get(rel["target_character_id"], "Unknown"),
+                "relation": rel["relation"],
+                "change_summary": rel["change_summary"],
+                "evidence": rel["evidence"],
+                "start_paragraph_order": rel["start_paragraph_order"],
+                "end_paragraph_order": rel["end_paragraph_order"],
+                "relation_category": rel.get("relation_category"),
+                "importance_score": rel.get("importance_score"),
+                "is_core_relation": rel.get("is_core_relation")
+            })
 
-                rel_item = {
-                    "source": src_name,
-                    "target": tgt_name,
-                    "relation": rel["relation"],
-                    "change_summary": rel["change_summary"],
-                    "evidence": rel["evidence"],
-                    "start_paragraph_order": rel["start_paragraph_order"],
-                    "end_paragraph_order": rel["end_paragraph_order"],
-                }
-                chapters_map[ch_id]["relationships_list"].append(rel_item)
-
-        # 딕셔너리 구조를 최종 반환 규격 리스트로 재변환
-        for ch_data in chapters_map.values():
-            chapter_final = {
-                "chapter_id": ch_data["chapter_id"],
-                "chapter_order": ch_data["chapter_order"],
-                "chapter_title": ch_data["chapter_title"],
+        # 최종 반환 구조 생성
+        combined_data = {"books_id": str(target_books_id), "results": []}
+        for ch_id in all_chapter_ids:
+            data = chapters_map[ch_id]
+            combined_data["results"].append({
+                "chapter_id": data["chapter_id"],
+                "chapter_order": data["chapter_order"],
+                "chapter_title": data["chapter_title"],
                 "result": {
-                    "characters": ch_data["result"]["characters"],
-                    "events": ch_data["events_list"],
-                    "relationships": ch_data["relationships_list"],
-                },
-            }
-            combined_data["results"].append(chapter_final)
+                    "characters": [{"name": c["character_name"], "role": c["role"], "description": c["description"]} for c in data["characters"]],
+                    "events": data["events"],
+                    "relationships": data["relationships"]
+                }
+            })
 
         return combined_data
 

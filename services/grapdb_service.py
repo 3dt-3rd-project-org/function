@@ -24,100 +24,71 @@ def _migrate_transaction_logic(tx, data):
         chapter_title = row["chapter_title"]
 
         # 1. 도서 - 챕터 관계 연결
-        tx.run(
-            """
+        tx.run("""
             MERGE (b:Book {books_id: $book_id})
             MERGE (ch:Chapter {chapter_id: $chapter_id})
             SET ch.title = $chapter_title, ch.chapter_order = $chapter_order
             MERGE (b)-[:HAS_CHAPTER]->(ch)
-            """,
-            book_id=book_id,
-            chapter_id=chapter_id,
-            chapter_order=chapter_order,
-            chapter_title=chapter_title,
-        )
+        """, book_id=book_id, chapter_id=chapter_id, chapter_order=chapter_order, chapter_title=chapter_title)
 
         contents = row["result"]
 
         # 2. 인물(Character) 노드 생성
         for char in contents.get("characters", []):
             char_id = f"{char['name']}_{book_id}"
-            tx.run(
-                """
+            tx.run("""
                 MERGE (c:Character {character_id: $char_id})
                 SET c.character_name = $name, c.role = $role, c.description = $description
-                """,
-                char_id=char_id,
-                name=char["name"],
-                role=char.get("role"),
-                description=char.get("description"),
-            )
+            """, char_id=char_id, name=char["name"], role=char.get("role"), description=char.get("description"))
 
         # 3. 사건(Event) 노드 생성 및 관계 연결
         for idx, ev in enumerate(contents.get("events", [])):
             event_id = f"ev_{chapter_id}_{idx}"
 
-            # 3-1. 챕터 -> 사건 연결
-            tx.run(
-                """
-                MATCH (ch:Chapter {chapter_id: $chapter_id})
+            # 3-1. 챕터 -> 사건 연결 (MATCH 대신 MERGE 사용)
+            tx.run("""
+                MERGE (ch:Chapter {chapter_id: $chapter_id})
                 MERGE (e:Event {event_id: $event_id})
                 SET e.summary = $summary, e.start_paragraph_order = $start_para, e.end_paragraph_order = $end_para
                 MERGE (ch)-[:HAS_EVENT]->(e)
-                """,
-                chapter_id=chapter_id,
-                event_id=event_id,
-                summary=ev.get("summary"),
-                start_para=ev.get("start_paragraph_order"),
-                end_para=ev.get("end_paragraph_order"),
-            )
+            """, chapter_id=chapter_id, event_id=event_id, summary=ev.get("summary"), 
+                 start_para=ev.get("start_paragraph_order"), end_para=ev.get("end_paragraph_order"))
 
-            # 3-2. 사건 -> 참여 인물(INVOLVES) 연결
+            # 3-2. 사건 -> 참여 인물(INVOLVES) 연결 (MERGE로 안전하게 연결)
             for ev_char in ev.get("characters", []):
                 target_char_id = f"{ev_char['name']}_{book_id}"
-                tx.run(
-                    """
-                    MATCH (e:Event {event_id: $event_id})
-                    MATCH (c:Character {character_id: $char_id})
+                tx.run("""
+                    MERGE (e:Event {event_id: $event_id})
+                    MERGE (c:Character {character_id: $char_id})
                     MERGE (e)-[r:INVOLVES]->(c)
                     SET r.role_in_event = $role_in_event
-                    """,
-                    event_id=event_id,
-                    char_id=target_char_id,
-                    role_in_event=ev_char.get("role_in_event"),
-                )
+                """, event_id=event_id, char_id=target_char_id, role_in_event=ev_char.get("role_in_event"))
 
         # 4. 인물 간 관계 변동 이력 (RELATES_TO) 연결
         for r_idx, rel in enumerate(contents.get("relationships", [])):
-            src_id = f"{rel['source']}_{book_id}"
-            tgt_id = f"{rel['target']}_{book_id}"
+            id_a = f"{rel['source']}_{book_id}"
+            id_b = f"{rel['target']}_{book_id}"
+            
+            # [방향 정규화] 항상 사전순으로 정렬하여 관계 방향 고정
+            src_id, tgt_id = (id_a, id_b) if id_a < id_b else (id_b, id_a)
             rel_change_id = f"rc_{chapter_id}_{r_idx}"
 
-            tx.run(
-                """
-                MATCH (c1:Character {character_id: $src_id})
-                MATCH (c2:Character {character_id: $tgt_id})
-                
-                MERGE (c1)-[r:RELATES_TO {chapter_id: $chapter_id}]->(c2)
-                SET r.relationship_change_id = $rel_change_id,
+            # [중복 방지] rel_change_id를 기반으로 고유한 관계 생성
+            tx.run("""
+                MERGE (c1:Character {character_id: $src_id})
+                MERGE (c2:Character {character_id: $tgt_id})
+                MERGE (c1)-[r:RELATES_TO {rel_change_id: $rel_change_id}]->(c2)
+                SET r.chapter_id = $chapter_id,
                     r.chapter_order = $chapter_order,
                     r.new_relation = $relation,
                     r.change_reason = $change_summary,
                     r.evidence = $evidence,
                     r.start_paragraph_order = $start_para,
                     r.end_paragraph_order = $end_para
-                """,
-                src_id=src_id,
-                tgt_id=tgt_id,
-                chapter_id=chapter_id,
-                chapter_order=chapter_order,
-                rel_change_id=rel_change_id,
-                relation=rel.get("relation"),
-                change_summary=rel.get("change_summary"),
-                evidence=rel.get("evidence"),
-                start_para=rel.get("start_paragraph_order"),
-                end_para=rel.get("end_paragraph_order"),
-            )
+            """, src_id=src_id, tgt_id=tgt_id, rel_change_id=rel_change_id, chapter_id=chapter_id,
+                 chapter_order=chapter_order, relation=rel.get("relation"), 
+                 change_summary=rel.get("change_summary"), evidence=rel.get("evidence"),
+                 start_para=rel.get("start_paragraph_order"), end_para=rel.get("end_paragraph_order"))
 
 
 def insert_graph_data(json_data):

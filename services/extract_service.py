@@ -145,28 +145,32 @@ def get_summarized_progress(conn, book_id, chapter_order, last_paragraph):
         
         query = """
         SELECT jsonb_agg(chapter_group)
-        FROM (
-            SELECT 
-                c.chapter_order,
-                jsonb_agg(
-                    jsonb_build_object(
-                        'order', e.event_order,
-                        'title', e.short_title,
-                        'summary', e.summary
-                    ) ORDER BY e.event_order ASC
-                ) AS events
-            FROM readpoint.event e
-            INNER JOIN readpoint.chapter c ON e.chapter_id = c.chapter_id
-            WHERE e.books_id = %s
-              AND c.chapter_order >= 2
-              AND (
-                  c.chapter_order < %s
-                  OR 
-                  (c.chapter_order = %s AND e.start_paragraph_id <= %s)
-              )
-            GROUP BY c.chapter_order
-            ORDER BY c.chapter_order ASC
-        ) chapter_group;
+            FROM (
+                SELECT 
+                    c.chapter_order,
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'order', e.event_order,
+                            'title', e.short_title,
+                            'summary', e.summary,
+                            'type', e.event_type,    
+                            'score', e.importance_score, 
+                            'core', e.is_core_event,    
+                            'sens', e.is_sensitive     
+                        ) ORDER BY e.event_order ASC
+                    ) AS events
+                FROM readpoint.event e
+                INNER JOIN readpoint.chapter c ON e.chapter_id = c.chapter_id
+                WHERE e.books_id = %s
+                  AND c.chapter_order >= %s  
+                  AND (
+                      c.chapter_order < %s
+                      OR 
+                      (c.chapter_order = %s AND e.start_paragraph_id <= %s)
+                  )
+                GROUP BY c.chapter_order
+                ORDER BY c.chapter_order ASC
+            ) chapter_group;
         """
         
         cur.execute(query, (book_id, chapter_order, chapter_order, last_paragraph))
