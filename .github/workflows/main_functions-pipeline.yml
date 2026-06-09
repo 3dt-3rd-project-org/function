@@ -1,4 +1,4 @@
-name: Build and deploy Python project to Azure Function App - functions-pipeline
+name: Deploy Azure Function App - functions-pipeline
 
 on:
   push:
@@ -6,12 +6,8 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: "."
-  PYTHON_VERSION: "3.11"
-
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     permissions:
@@ -22,10 +18,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python version
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.11"
+
+      - name: Install Azure Functions Core Tools
+        run: |
+          npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -34,11 +34,6 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_80350A22BBD74C05A5569EA8BB98A4C1 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_AD2F17CCCC87402595FFA788627D5DE2 }}
 
-      - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
-        with:
-          app-name: "functions-pipeline"
-          slot-name: "Production"
-          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          scm-do-build-during-deployment: true
-          enable-oryx-build: true
+      - name: Publish to Azure Functions
+        run: |
+          func azure functionapp publish functions-pipeline --python --build remote
