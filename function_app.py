@@ -11,11 +11,16 @@ from services.db_service import (
 
 from services.blob_service import download_epub_from_blob
 from services.epub_parser import parse_epub
-from services.extract_service import run_openai_extract, get_summarized_progress
+from services.extract_service import (
+    run_openai_extract,
+    run_openai_extract_chapter,
+    get_summarized_progress
+)
 from services.normalize_service import run_normalize_characters
 from services.save_normalized_service import run_save_normalized_analysis
 from services.grapdb_service import insert_graph_data
 from services.book_refine_service import run_book_graph_refine
+from services.progress_summary_service import generate_progress_summaries
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -149,6 +154,57 @@ def openai_extract(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json"
         )
+    
+
+@app.route(route="openai_extract_chapter", methods=["POST"])
+def openai_extract_chapter(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("openai_extract_chapter function called")
+
+    try:
+        body = req.get_json()
+        books_id = body.get("books_id")
+        chapter_id = body.get("chapter_id")
+
+        if books_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        if chapter_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "chapter_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        books_id = int(books_id)
+        chapter_id = int(chapter_id)
+
+        conn = get_conn()
+
+        try:
+            with conn:
+                result = run_openai_extract_chapter(conn, books_id, chapter_id)
+        finally:
+            conn.close()
+
+        return func.HttpResponse(
+            json.dumps(result, ensure_ascii=False),
+            status_code=200,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.exception("openai_extract_chapter failed")
+
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
+    
 
 
 @app.route(route="normalize_characters", methods=["POST"])
@@ -390,3 +446,44 @@ def summarize_reading(req: func.HttpRequest) -> func.HttpResponse:
         logging.error(f"오류 발생: {e}")
         return func.HttpResponse("서버 내부 오류가 발생했습니다.", status_code=500)
 
+
+
+@app.route(route="generate_progress_summary", methods=["POST"])
+def generate_progress_summary(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("generate_progress_summary function called")
+
+    try:
+        body = req.get_json()
+        books_id = body.get("books_id")
+
+        if books_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        books_id = int(books_id)
+
+        conn = get_conn()
+
+        try:
+            with conn:
+                result = generate_progress_summaries(conn, books_id)
+        finally:
+            conn.close()
+
+        return func.HttpResponse(
+            json.dumps(result, ensure_ascii=False),
+            status_code=200,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.exception("generate_progress_summary failed")
+
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
