@@ -16,7 +16,6 @@ from services.normalize_service import run_normalize_characters
 from services.save_normalized_service import run_save_normalized_analysis
 from services.grapdb_service import insert_graph_data
 from services.book_refine_service import run_book_graph_refine
-from services.relationship_arc_service import run_relationship_arc_test
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -349,52 +348,6 @@ def book_graph_refine(req: func.HttpRequest) -> func.HttpResponse:
         )
     
 
-
-
-@app.route(route="relationship_arc_test", methods=["POST"])
-def relationship_arc_test(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("relationship_arc_test function called")
-
-    try:
-        body = req.get_json()
-        books_id = body.get("books_id")
-        min_event_importance = body.get("min_event_importance", 0.5)
-
-        if books_id is None:
-            return func.HttpResponse(
-                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
-                status_code=400,
-                mimetype="application/json"
-            )
-
-        books_id = int(books_id)
-        min_event_importance = float(min_event_importance)
-
-        conn = get_conn()
-
-        try:
-            with conn:
-                result = run_relationship_arc_test(
-                    conn,
-                    books_id,
-                    min_event_importance=min_event_importance
-                )
-        finally:
-            conn.close()
-
-        return func.HttpResponse(
-            json.dumps(result, ensure_ascii=False),
-            status_code=200,
-            mimetype="application/json"
-        )
-
-    except Exception as e:
-        logging.exception("relationship_arc_test failed")
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}, ensure_ascii=False),
-            status_code=500,
-            mimetype="application/json"
-        )
 
 @app.route(route="summarize_reading", methods=["POST"])
 def summarize_reading(req: func.HttpRequest) -> func.HttpResponse:
