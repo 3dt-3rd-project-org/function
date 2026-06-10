@@ -11,23 +11,19 @@ from services.db_service import (
 
 from services.blob_service import download_epub_from_blob
 from services.epub_parser import parse_epub
-from services.extract_service import (
-    run_openai_extract,
-    run_openai_extract_chapter,
-    get_summarized_progress
-)
+from services.extract_service import run_openai_extract_chapter
 from services.normalize_service import run_normalize_characters
 from services.save_normalized_service import run_save_normalized_analysis
 from services.grapdb_service import insert_graph_data
 from services.book_refine_service import run_book_graph_refine
-from services.progress_summary_service import (
-    generate_progress_summaries,
-    generate_progress_summary_for_event,
-)
+from services.progress_summary_service import generate_progress_summary_for_event
+
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 # bronze layer
+
+## 챕터, 문단 분리
 @app.route(route="chapter_split", methods=["POST"])
 def chapter_split(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("chapter_split function called")
@@ -112,53 +108,7 @@ def chapter_split(req: func.HttpRequest) -> func.HttpResponse:
 
 # silver layer
 
-@app.route(route="openai_extract", methods=["POST"])
-def openai_extract(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("openai_extract function called")
-
-    try:
-        body = req.get_json()
-        books_id = body.get("books_id")
-
-        if books_id is None:
-            return func.HttpResponse(
-                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
-                status_code=400,
-                mimetype="application/json"
-            )
-
-        books_id = int(books_id)
-
-        conn = get_conn()
-
-        try:
-            with conn:
-                result = run_openai_extract(conn, books_id)
-
-        finally:
-            conn.close()
-
-        return func.HttpResponse(
-            json.dumps({
-                "status": "success",
-                "message": "openai_extract completed",
-                "books_id": books_id,
-                **result
-            }, ensure_ascii=False),
-            status_code=200,
-            mimetype="application/json"
-        )
-
-    except Exception as e:
-        logging.exception("openai_extract failed")
-
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}, ensure_ascii=False),
-            status_code=500,
-            mimetype="application/json"
-        )
-    
-
+## 인물/사건/관계 추출
 @app.route(route="openai_extract_chapter", methods=["POST"])
 def openai_extract_chapter(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("openai_extract_chapter function called")
@@ -209,7 +159,7 @@ def openai_extract_chapter(req: func.HttpRequest) -> func.HttpResponse:
         )
     
 
-
+## 인물 정규화
 @app.route(route="normalize_characters", methods=["POST"])
 def normalize_characters(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("normalize_characters function called")
@@ -251,6 +201,9 @@ def normalize_characters(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
+# GOLD LAYER
+
+## 정규화 된 인물 사용하여 POSTGRESQL 인물/사건/사건참여 인물/관게변화 테이블에 저장 
 @app.route(route="save_normalized_analysis", methods=["POST"])
 def save_normalized_analysis(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("save_normalized_analysis function called")
@@ -292,6 +245,50 @@ def save_normalized_analysis(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
+
+## 인물/사건/관계변화 테이블 중요도 선정
+@app.route(route="book_graph_refine", methods=["POST"])
+def book_graph_refine(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("book_graph_refine function called")
+
+    try:
+        body = req.get_json()
+        books_id = body.get("books_id")
+
+        if books_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        books_id = int(books_id)
+
+        conn = get_conn()
+
+        try:
+            with conn:
+                result = run_book_graph_refine(conn, books_id)
+        finally:
+            conn.close()
+
+        return func.HttpResponse(
+            json.dumps(result, ensure_ascii=False),
+            status_code=200,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.exception("book_graph_refine failed")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+
+## NEO4J GRAPH DB 저장
 @app.route(route="migrate_graph", methods=["POST"])
 def migrate_graph_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("migrate_graph function called")
@@ -367,131 +364,8 @@ def migrate_graph_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     
 
 
-@app.route(route="book_graph_refine", methods=["POST"])
-def book_graph_refine(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("book_graph_refine function called")
 
-    try:
-        body = req.get_json()
-        books_id = body.get("books_id")
-
-        if books_id is None:
-            return func.HttpResponse(
-                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
-                status_code=400,
-                mimetype="application/json"
-            )
-
-        books_id = int(books_id)
-
-        conn = get_conn()
-
-        try:
-            with conn:
-                result = run_book_graph_refine(conn, books_id)
-        finally:
-            conn.close()
-
-        return func.HttpResponse(
-            json.dumps(result, ensure_ascii=False),
-            status_code=200,
-            mimetype="application/json"
-        )
-
-    except Exception as e:
-        logging.exception("book_graph_refine failed")
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}, ensure_ascii=False),
-            status_code=500,
-            mimetype="application/json"
-        )
-    
-
-
-@app.route(route="summarize_reading", methods=["POST"])
-def summarize_reading(req: func.HttpRequest) -> func.HttpResponse:
-    try:
-        # 1. 요청 본문에서 파라미터 추출
-        req_body = req.get_json()
-        user_id = req_body.get("user_id")
-        book_id = req_body.get("book_id")
-        chapter_order = req_body.get("chapter_order")
-        last_paragraph = req_body.get("last_paragraph")
-
-        # 입력값 검증
-        if not all([user_id, book_id, chapter_order, last_paragraph]):
-            return func.HttpResponse("필수 파라미터(user_id, book_id, chapter_order, last_paragraph)가 누락되었습니다.", status_code=400)
-
-        # 2. DB 연결 생성 (get_conn 함수 사용)
-        conn = get_conn()
-
-        # 3. 서비스 함수 호출 (DB 조회 및 요약 통합)
-        # 이제 외부에서 넘겨받은 값들을 직접 전달합니다.
-        result = get_summarized_progress(conn, book_id, chapter_order, last_paragraph)
-
-        # 4. 결과 응답
-        if result["status"] == "success":
-            print(f"--- [User: {user_id}] 요약 결과 ---")
-            print(result["summary"])
-            return func.HttpResponse(
-                f"요약 완료: {result['summary']}", 
-                status_code=200
-            )
-        else:
-            return func.HttpResponse(
-                f"요약 실패: {result.get('message')}", 
-                status_code=500
-            )
-
-    except ValueError:
-        return func.HttpResponse("유효한 JSON 본문이 아닙니다.", status_code=400)
-    except Exception as e:
-        logging.error(f"오류 발생: {e}")
-        return func.HttpResponse("서버 내부 오류가 발생했습니다.", status_code=500)
-
-
-
-@app.route(route="generate_progress_summary", methods=["POST"])
-def generate_progress_summary(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("generate_progress_summary function called")
-
-    try:
-        body = req.get_json()
-        books_id = body.get("books_id")
-
-        if books_id is None:
-            return func.HttpResponse(
-                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
-                status_code=400,
-                mimetype="application/json"
-            )
-
-        books_id = int(books_id)
-
-        conn = get_conn()
-
-        try:
-            with conn:
-                result = generate_progress_summaries(conn, books_id)
-        finally:
-            conn.close()
-
-        return func.HttpResponse(
-            json.dumps(result, ensure_ascii=False),
-            status_code=200,
-            mimetype="application/json"
-        )
-
-    except Exception as e:
-        logging.exception("generate_progress_summary failed")
-
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}, ensure_ascii=False),
-            status_code=500,
-            mimetype="application/json"
-        )
-
-
+## 요약본 생성
 @app.route(route="generate_progress_summary_event", methods=["POST"])
 def generate_progress_summary_event(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("generate_progress_summary_event function called")

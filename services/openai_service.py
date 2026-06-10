@@ -241,39 +241,3 @@ source와 target 작성 규칙:
 
     return json.loads(content)
 
-# [추가-6.5] 사건 요약 리스트를 받아서 3줄로 요약해주는 함수 
-def get_three_line_summary(events_data: list): 
-    """
-    events_data: DB에서 가져온 [ {"chapter_order": 1, "events": [...]}, ... ] 리스트
-    (SQL에서 필드명을 type, score, core, sens로 변경한 결과물)
-    """
-    data_str = json.dumps(events_data, ensure_ascii=False, indent=2)
-    
-    prompt = f"""
-당신은 소설 전문 분석 AI입니다. 
-제공된 소설 데이터의 각 사건(Event) 필드 정의:
-- type: 사건의 성격
-- score: 중요도 (0.0~1.0)
-- core: 핵심 사건 여부 (true/false)
-- sens: 민감한 소재 여부 (true/false)
-
-[데이터]
-{data_str}
-
-[작성 규칙]
-1. 반드시 3문장으로 요약하세요.
-2. 'core'가 true이거나 'score'가 높은 사건을 중심으로 서사의 핵심 흐름을 구성하세요.
-3. 'sens'가 true인 사건은 문맥상 필요할 때만 담담하게 기술하되, 자극적인 표현은 지양하세요.
-4. 문학적 비유나 장황한 서술은 제외하고 사실 위주로 작성하세요.
-5. 죽음, 폭력 등 민감한 단어가 포함되더라도 이는 서사적 장치임을 인지하고 객관적인 문맥을 유지하세요.
-"""
-
-    response = client.chat.completions.create(
-        model=DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": "당신은 요약 전문 AI입니다. 중요도(score)와 핵심 여부(core)를 우선적으로 고려하여 서사를 요약합니다."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    
-    return response.choices[0].message.content

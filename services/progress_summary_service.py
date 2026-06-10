@@ -7,39 +7,6 @@ from psycopg2.extras import RealDictCursor
 from services.openai_client import client, DEPLOYMENT
 
 
-IMPORTANCE_THRESHOLD = 0.6
-
-
-def fetch_target_events(conn, books_id: int):
-    """
-    progress_summary를 생성할 대상 사건 목록 조회
-    - 중요도 0.6 이상만 사용
-    - 책 전체 흐름 순서대로 정렬
-    """
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT
-                event_id,
-                books_id,
-                chapter_id,
-                event_order,
-                short_title,
-                summary,
-                start_paragraph_id,
-                end_paragraph_id,
-                importance_score,
-                is_core_event
-            FROM event
-            WHERE books_id = %s
-              AND importance_score >= %s
-            ORDER BY chapter_id, event_order, event_id;
-            """,
-            (books_id, IMPORTANCE_THRESHOLD),
-        )
-        return cur.fetchall()
-
-
 def fetch_event_characters(conn, event_id: int):
     """
     사건에 연결된 등장인물 목록 조회
@@ -288,51 +255,6 @@ def upsert_progress_summary(conn, event_row: dict, llm_result: dict):
         )
 
 
-def generate_progress_summaries(conn, books_id: int):
-    """
-    books_id 기준으로 중요 사건마다 이어읽기 요약 생성
-    """
-    events = fetch_target_events(conn, books_id)
-
-    previous_cumulative_summary = ""
-    saved_count = 0
-
-    logging.info(
-        "progress_summary generation started. books_id=%s, target_event_count=%s",
-        books_id,
-        len(events),
-    )
-
-    for event_row in events:
-        logging.info(
-            "generating progress_summary. books_id=%s, event_id=%s, title=%s",
-            books_id,
-            event_row["event_id"],
-            event_row["short_title"],
-        )
-
-        event_characters = fetch_event_characters(conn, event_row["event_id"])
-
-        llm_result = call_llm_for_progress_summary(
-            previous_cumulative_summary,
-            event_row,
-            event_characters,
-        )
-
-        upsert_progress_summary(conn, event_row, llm_result)
-        conn.commit()
-
-        previous_cumulative_summary = llm_result.get("cumulative_summary_text", "")
-        saved_count += 1
-
-    conn.commit()
-
-    return {
-        "status": "success",
-        "books_id": books_id,
-        "target_event_count": len(events),
-        "saved_count": saved_count,
-    }
 
 
 
