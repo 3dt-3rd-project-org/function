@@ -20,7 +20,10 @@ from services.normalize_service import run_normalize_characters
 from services.save_normalized_service import run_save_normalized_analysis
 from services.grapdb_service import insert_graph_data
 from services.book_refine_service import run_book_graph_refine
-from services.progress_summary_service import generate_progress_summaries
+from services.progress_summary_service import (
+    generate_progress_summaries,
+    generate_progress_summary_for_event,
+)
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -481,6 +484,58 @@ def generate_progress_summary(req: func.HttpRequest) -> func.HttpResponse:
 
     except Exception as e:
         logging.exception("generate_progress_summary failed")
+
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="generate_progress_summary_event", methods=["POST"])
+def generate_progress_summary_event(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("generate_progress_summary_event function called")
+
+    try:
+        body = req.get_json()
+        books_id = body.get("books_id")
+        event_id = body.get("event_id")
+
+        if books_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        if event_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "event_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        books_id = int(books_id)
+        event_id = int(event_id)
+
+        conn = get_conn()
+
+        try:
+            with conn:
+                result = generate_progress_summary_for_event(conn, books_id, event_id)
+        finally:
+            conn.close()
+
+        status_code = 200 if result.get("status") == "success" else 404
+
+        return func.HttpResponse(
+            json.dumps(result, ensure_ascii=False),
+            status_code=status_code,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.exception("generate_progress_summary_event failed")
 
         return func.HttpResponse(
             json.dumps({"error": str(e)}, ensure_ascii=False),
