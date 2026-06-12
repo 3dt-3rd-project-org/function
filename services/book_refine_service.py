@@ -5,19 +5,49 @@ from services.openai_client import client, DEPLOYMENT
 
 
 def run_book_graph_refine(conn, books_id: int):
+    logging.info(f"book_graph_refine start books_id={books_id}")
+
     payload = build_refine_input(conn, books_id)
 
+    logging.info(
+        f"payload counts: "
+        f"characters={len(payload['characters'])}, "
+        f"events={len(payload['events'])}, "
+        f"relationships={len(payload['relationships'])}"
+    )
+
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    logging.info(f"payload_size={len(payload_json):,} chars")
+
     if not payload["characters"] and not payload["events"] and not payload["relationships"]:
+        logging.warning(f"No normalized data found books_id={books_id}")
+
         return {
             "status": "error",
             "message": "No normalized data found",
             "books_id": books_id
         }
 
+    logging.info("===== LLM START =====")
+
     result = call_book_refine_llm(payload)
+
+    logging.info("===== LLM END =====")
+
+    logging.info(
+        f"LLM result counts: "
+        f"characters={len(result.get('characters', []))}, "
+        f"events={len(result.get('events', []))}, "
+        f"relationships={len(result.get('relationships', []))}"
+    )
+
+    logging.info("===== DB UPDATE START =====")
 
     update_refine_result(conn, books_id, result)
     conn.commit()
+
+    logging.info("===== DB UPDATE END =====")
 
     return {
         "status": "success",
