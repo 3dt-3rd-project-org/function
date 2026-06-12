@@ -368,6 +368,56 @@ def book_graph_refine_activity(input_data: dict):
 
 
 
+@app.route(route="book_graph_refine_status", methods=["POST"])
+@app.durable_client_input(client_name="client")
+async def book_graph_refine_status(req: func.HttpRequest, client):
+    logging.info("book_graph_refine_status function called")
+
+    try:
+        body = req.get_json()
+        instance_id = body.get("instance_id")
+
+        if not instance_id:
+            return func.HttpResponse(
+                json.dumps({"error": "instance_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        status = await client.get_status(instance_id)
+
+        if status is None:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "not_found",
+                    "instance_id": instance_id
+                }, ensure_ascii=False),
+                status_code=404,
+                mimetype="application/json"
+            )
+
+        return func.HttpResponse(
+            json.dumps({
+                "instance_id": instance_id,
+                "runtimeStatus": status.runtime_status.name,
+                "createdTime": status.created_time.isoformat() if status.created_time else None,
+                "lastUpdatedTime": status.last_updated_time.isoformat() if status.last_updated_time else None,
+                "output": status.output
+            }, ensure_ascii=False, default=str),
+            status_code=200,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.exception("book_graph_refine_status failed")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+
 ## NEO4J GRAPH DB 저장
 @app.route(route="migrate_graph", methods=["POST"])
 def migrate_graph_endpoint(req: func.HttpRequest) -> func.HttpResponse:
