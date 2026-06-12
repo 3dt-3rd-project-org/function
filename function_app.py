@@ -384,6 +384,7 @@ async def book_graph_refine_status(req: func.HttpRequest, client):
                 mimetype="application/json"
             )
 
+
         status = await client.get_status(instance_id)
 
         if status is None:
