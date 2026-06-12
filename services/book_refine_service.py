@@ -16,24 +16,49 @@ def run_book_graph_refine(conn, books_id: int):
         f"relationships={len(payload['relationships'])}"
     )
 
-    payload_json = json.dumps(payload, ensure_ascii=False)
-
-    logging.info(f"payload_size={len(payload_json):,} chars")
-
     if not payload["characters"] and not payload["events"] and not payload["relationships"]:
         logging.warning(f"No normalized data found books_id={books_id}")
-
         return {
             "status": "error",
             "message": "No normalized data found",
             "books_id": books_id
         }
 
-    logging.info("===== LLM START =====")
+    result = {
+        "characters": [],
+        "events": [],
+        "relationships": []
+    }
 
-    result = call_book_refine_llm(payload)
+    if payload["characters"]:
+        logging.info("===== CHARACTER REFINE START =====")
+        character_payload = {
+            "books_id": books_id,
+            "characters": payload["characters"]
+        }
+        character_result = call_character_refine_llm(character_payload)
+        result["characters"] = character_result.get("characters", [])
+        logging.info("===== CHARACTER REFINE END =====")
 
-    logging.info("===== LLM END =====")
+    if payload["events"]:
+        logging.info("===== EVENT REFINE START =====")
+        event_payload = {
+            "books_id": books_id,
+            "events": payload["events"]
+        }
+        event_result = call_event_refine_llm(event_payload)
+        result["events"] = event_result.get("events", [])
+        logging.info("===== EVENT REFINE END =====")
+
+    if payload["relationships"]:
+        logging.info("===== RELATIONSHIP REFINE START =====")
+        relationship_payload = {
+            "books_id": books_id,
+            "relationships": payload["relationships"]
+        }
+        relationship_result = call_relationship_refine_llm(relationship_payload)
+        result["relationships"] = relationship_result.get("relationships", [])
+        logging.info("===== RELATIONSHIP REFINE END =====")
 
     logging.info(
         f"LLM result counts: "
@@ -58,7 +83,6 @@ def run_book_graph_refine(conn, books_id: int):
         "relationship_count": len(result.get("relationships", [])),
         "result": result
     }
-
 
 def build_refine_input(conn, books_id: int):
     with conn.cursor() as cur:
@@ -151,27 +175,12 @@ def build_refine_input(conn, books_id: int):
     }
 
 
-def call_book_refine_llm(payload: dict):
+
+def call_character_refine_llm(payload: dict):
     prompt = f"""
-당신은 소설 지식그래프 데이터를 정제하는 분석기이다.
+당신은 소설 인물 데이터를 정제하는 분석기이다.
 
-입력 데이터는 이미 1차 정규화가 끝난 소설 분석 결과이다.
-하지만 주요 인물, 핵심 사건, 관계 상태, 단순 상호작용이 섞여 있다.
-
-너의 역할은 다음과 같다.
-
-1. characters 각각에 대해 character_type과 importance_score를 부여한다.
-2. events 각각에 대해 event_type, importance_score, is_core_event를 부여한다.
-3. relationships 각각에 대해 relation_category, importance_score, is_core_relation을 부여한다.
-
-중요 규칙:
-- 입력에 있는 id는 반드시 그대로 반환하라.
-- 입력에 없는 인물, 사건, 관계를 새로 만들지 마라.
-- 입력된 relation 값은 절대 수정하지 마라.
-- relation을 표준 관계명으로 바꾸려고 하지 마라.
-- relation_category만 RELATIONSHIP 또는 INTERACTION 중 하나로 분류하라.
-
-분류 기준:
+characters 각각에 대해 character_type과 importance_score를 부여하라.
 
 character_type:
 - MAIN_CHARACTER: 소설 전체 전개에 핵심적인 주요 인물
@@ -179,45 +188,17 @@ character_type:
 - ROLE_ONLY: 이름이 아니라 직책/호칭 중심 인물
 - GROUP: 개인이 아니라 집단
 
-event_type:
-- CORE_EVENT: 전체 줄거리 이해에 반드시 필요한 핵심 사건
-- SUPPORT_EVENT: 핵심 사건을 이해하는 데 도움이 되는 보조 사건
-- MINOR_EVENT: 일상적 장면, 단순 이동, 단순 식사, 단순 등장 등 중요도가 낮은 사건
-
-relation_category:
-- RELATIONSHIP:
-  두 인물 사이에 일정 기간 이상 유지되는 관계 상태이다.
-  감정, 신분, 소속, 혈연, 애정, 대립, 의존, 협력, 지배, 단절처럼 인물 관계를 설명할 수 있으면 RELATIONSHIP으로 분류한다.
-  예: 사랑, 호감, 신뢰, 갈등, 적대, 협력, 동지, 의존, 보호, 지지, 단절, 거리두기, 압박, 지배, 부부, 가족, 약혼, 스승-제자, 경쟁, 배신, 복수, 충성, 추종
-
-- INTERACTION:
-  특정 사건 안에서만 발생한 행동, 반응, 도움, 대화, 처치, 신고, 설득, 약속, 제안, 명령, 공격 등이다.
-  그 자체가 지속적인 관계 상태가 아니라 사건 속 행동이면 INTERACTION으로 분류한다.
-  예: 위로, 치료, 환대, 조력, 약속, 협상, 신고, 고발, 지목, 접근, 모욕, 제압, 설득, 명령, 소개, 방문, 구조, 전달
-
-주의:
-- 위 예시는 참고용이다. 예시에 없는 relation도 의미를 보고 RELATIONSHIP 또는 INTERACTION으로 분류하라.
-- relation 이름이 낯설어도 새 이름으로 바꾸지 말고, category만 판단하라.
-- “약속”은 보통 INTERACTION이지만, 약혼/혼인처럼 지속 관계 상태를 의미하면 RELATIONSHIP으로 볼 수 있다.
-- “보호”, “의존”, “지지”는 일회성 행동이면 INTERACTION, 지속적 관계 상태이면 RELATIONSHIP으로 판단하라.
-- 판단이 애매하면 change_summary와 related_event를 보고 결정하라.
-
 importance_score:
 - 0.00 ~ 1.00 사이 숫자
 - 소설 전체 이해에 중요할수록 높게 부여
-- MAIN_CHARACTER, CORE_EVENT, 핵심 관계일수록 높게 부여
-- 단순 장면, 단역, 일회성 행동은 낮게 부여
+- 단역, 단순 호칭, 일회성 인물은 낮게 부여
 
-events 각각에 대해 is_sensitive를 부여한다.
-sensitive 판단 기준:
-- 폭력, 살해, 자해, 죽음, 질병 악화, 체포, 감금, 학대, 성적 위협, 차별, 강압 등 사용자가 불편하게 느낄 수 있는 사건이면 true
-- 일반 갈등, 단순 말다툼, 일상 사건은 false
-
-반드시 JSON만 반환하라.
-마크다운, 설명문, 코드블록은 쓰지 마라.
+중요 규칙:
+- 입력에 있는 character_id는 반드시 그대로 반환하라.
+- 입력에 없는 인물을 새로 만들지 마라.
+- 반드시 JSON만 반환하라.
 
 반환 형식:
-
 {{
   "characters": [
     {{
@@ -225,7 +206,63 @@ sensitive 판단 기준:
       "character_type": "MAIN_CHARACTER",
       "importance_score": 0.95
     }}
-  ],
+  ]
+}}
+
+입력 데이터:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+    logging.info(f"character prompt_size={len(prompt):,} chars")
+    logging.info("OpenAI character refine START")
+
+    response = client.chat.completions.create(
+        model=DEPLOYMENT,
+        messages=[
+            {"role": "system", "content": "당신은 소설 인물 정제기이다. 반드시 JSON만 반환한다."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format={"type": "json_object"},
+        timeout=180
+    )
+
+    logging.info("OpenAI character refine END")
+
+    return json.loads(response.choices[0].message.content)
+
+
+def call_event_refine_llm(payload: dict):
+    prompt = f"""
+당신은 소설 사건 데이터를 정제하는 분석기이다.
+
+events 각각에 대해 event_type, importance_score, is_core_event, is_sensitive를 부여하라.
+
+event_type:
+- CORE_EVENT: 전체 줄거리 이해에 반드시 필요한 핵심 사건
+- SUPPORT_EVENT: 핵심 사건을 이해하는 데 도움이 되는 보조 사건
+- MINOR_EVENT: 일상적 장면, 단순 이동, 단순 식사, 단순 등장 등 중요도가 낮은 사건
+
+importance_score:
+- 0.00 ~ 1.00 사이 숫자
+- 소설 전체 이해에 중요할수록 높게 부여
+- 인물 성장, 좌절, 갈등 시작, 갈등 심화, 관계 변화, 전환점, 결말에 영향을 주는 사건은 높게 부여
+- 단순 장면, 단순 이동, 일상 묘사는 낮게 부여
+
+is_core_event:
+- CORE_EVENT이면 true
+- 아니면 false
+
+is_sensitive:
+- 폭력, 살해, 자해, 죽음, 질병 악화, 체포, 감금, 학대, 성적 위협, 차별, 강압 등 사용자가 불편하게 느낄 수 있는 사건이면 true
+- 일반 갈등, 단순 말다툼, 일상 사건은 false
+
+중요 규칙:
+- 입력에 있는 event_id는 반드시 그대로 반환하라.
+- 입력에 없는 사건을 새로 만들지 마라.
+- 반드시 JSON만 반환하라.
+
+반환 형식:
+{{
   "events": [
     {{
       "event_id": 0,
@@ -234,7 +271,69 @@ sensitive 판단 기준:
       "is_core_event": true,
       "is_sensitive": false
     }}
-  ],
+  ]
+}}
+
+입력 데이터:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+    logging.info(f"event prompt_size={len(prompt):,} chars")
+    logging.info("OpenAI event refine START")
+
+    response = client.chat.completions.create(
+        model=DEPLOYMENT,
+        messages=[
+            {"role": "system", "content": "당신은 소설 사건 정제기이다. 반드시 JSON만 반환한다."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format={"type": "json_object"},
+        timeout=180
+    )
+
+    logging.info("OpenAI event refine END")
+
+    return json.loads(response.choices[0].message.content)
+
+
+def call_relationship_refine_llm(payload: dict):
+    prompt = f"""
+당신은 소설 인물 관계 데이터를 정제하는 분석기이다.
+
+relationships 각각에 대해 relation_category, importance_score, is_core_relation을 부여하라.
+
+relation_category:
+- RELATIONSHIP:
+  두 인물 사이에 일정 기간 이상 유지되는 관계 상태이다.
+  감정, 신분, 소속, 혈연, 애정, 대립, 의존, 협력, 지배, 단절처럼 인물 관계를 설명할 수 있으면 RELATIONSHIP으로 분류한다.
+
+- INTERACTION:
+  특정 사건 안에서만 발생한 행동, 반응, 도움, 대화, 처치, 신고, 설득, 약속, 제안, 명령, 공격 등이다.
+  지속적인 관계 상태가 아니라 사건 속 행동이면 INTERACTION으로 분류한다.
+
+주의:
+- 입력된 relation 값은 절대 수정하지 마라.
+- relation을 표준 관계명으로 바꾸지 마라.
+- relation_category만 RELATIONSHIP 또는 INTERACTION 중 하나로 분류하라.
+- “약속”은 보통 INTERACTION이지만, 약혼/혼인처럼 지속 관계 상태면 RELATIONSHIP으로 볼 수 있다.
+- “보호”, “의존”, “지지”는 일회성 행동이면 INTERACTION, 지속적 관계 상태이면 RELATIONSHIP으로 판단하라.
+
+importance_score:
+- 0.00 ~ 1.00 사이 숫자
+- 주요 인물 간 핵심 관계일수록 높게 부여
+- 단순 대화, 일회성 도움, 단순 만남은 낮게 부여
+
+is_core_relation:
+- 소설 전체 인물 관계 이해에 중요하면 true
+- 단순 상호작용이면 false
+
+중요 규칙:
+- 입력에 있는 relationship_change_id는 반드시 그대로 반환하라.
+- 입력에 없는 관계를 새로 만들지 마라.
+- 반드시 JSON만 반환하라.
+
+반환 형식:
+{{
   "relationships": [
     {{
       "relationship_change_id": 0,
@@ -249,23 +348,22 @@ sensitive 판단 기준:
 {json.dumps(payload, ensure_ascii=False)}
 """
 
+    logging.info(f"relationship prompt_size={len(prompt):,} chars")
+    logging.info("OpenAI relationship refine START")
+
     response = client.chat.completions.create(
         model=DEPLOYMENT,
         messages=[
-            {
-                "role": "system",
-                "content": "당신은 소설 지식그래프 정제기이다. 반드시 JSON만 반환한다."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "system", "content": "당신은 소설 관계 정제기이다. 반드시 JSON만 반환한다."},
+            {"role": "user", "content": prompt}
         ],
-        response_format={"type": "json_object"}
+        response_format={"type": "json_object"},
+        timeout=180
     )
 
-    content = response.choices[0].message.content
-    return json.loads(content)
+    logging.info("OpenAI relationship refine END")
+
+    return json.loads(response.choices[0].message.content)
 
 
 def update_refine_result(conn, books_id: int, result: dict):
