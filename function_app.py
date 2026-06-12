@@ -1,6 +1,7 @@
 import json
 import logging
 import azure.functions as func
+import azure.durable_functions as df
 
 from services.db_service import (
     get_conn,
@@ -19,7 +20,7 @@ from services.book_refine_service import run_book_graph_refine
 from services.progress_summary_service import generate_progress_summary_for_event
 
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+app = df.DFApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 # bronze layer
 
@@ -285,6 +286,85 @@ def book_graph_refine(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json"
         )
+    
+## 비동기용 함수
+@app.route(route="book_graph_refine_start", methods=["POST"])
+@app.durable_client_input(client_name="client")
+async def book_graph_refine_start(req: func.HttpRequest, client):
+    logging.info("book_graph_refine_start function called")
+
+    try:
+        body = req.get_json()
+        books_id = body.get("books_id")
+
+        if books_id is None:
+            return func.HttpResponse(
+                json.dumps({"error": "books_id is required"}, ensure_ascii=False),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        books_id = int(books_id)
+
+        instance_id = await client.start_new(
+            "book_graph_refine_orchestrator",
+            None,
+            {"books_id": books_id}
+        )
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "accepted",
+                "message": "book_graph_refine started",
+                "books_id": books_id,
+                "instance_id": instance_id
+            }, ensure_ascii=False),
+            status_code=202,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.exception("book_graph_refine_start failed")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.orchestration_trigger(context_name="context")
+def book_graph_refine_orchestrator(context: df.DurableOrchestrationContext):
+    input_data = context.get_input()
+
+    result = yield context.call_activity(
+        "book_graph_refine_activity",
+        input_data
+    )
+
+    return result
+
+
+@app.activity_trigger(input_name="input_data")
+def book_graph_refine_activity(input_data: dict):
+    books_id = int(input_data["books_id"])
+
+    logging.info(f"book_graph_refine_activity started books_id={books_id}")
+
+    conn = get_conn()
+
+    try:
+        with conn:
+            result = run_book_graph_refine(conn, books_id)
+
+        logging.info(f"book_graph_refine_activity completed books_id={books_id}")
+        return result
+
+    except Exception:
+        logging.exception("book_graph_refine_activity failed")
+        raise
+
+    finally:
+        conn.close()
 
 
 
