@@ -52,7 +52,8 @@ def parse_epub(epub_path: str):
         chapter_title = clean_text(title_tag.get_text()) if title_tag else f"chapter_{chapter_order}"
 
         if chapter_order == 1 and chapter_title == "chapter_1":
-            chapter_title = "서문"
+            chapter_order -= 1
+            continue
 
         for paragraph_order, content in enumerate(paragraphs, start=1):
             rows.append({
