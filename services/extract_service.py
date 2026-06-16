@@ -3,6 +3,7 @@ import time
 import logging
 
 from services.openai_service import extract_chapter_analysis
+from services.db_service import add_llm_usage
 
 
 
@@ -68,9 +69,20 @@ def run_openai_extract_chapter(conn, books_id: int, chapter_id: int):
                     max_retries
                 )
 
-                result = extract_chapter_analysis(
+                openai_result = extract_chapter_analysis(
                     chapter_title=chapter_title,
                     chapter_text=chapter_text
+                )
+
+                result = openai_result["data"]
+                usage = openai_result["usage"]
+
+                add_llm_usage(
+                    conn=conn,
+                    books_id=books_id,
+                    prompt_tokens=usage["prompt_tokens"],
+                    completion_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"]
                 )
 
                 break

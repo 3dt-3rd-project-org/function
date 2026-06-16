@@ -3,7 +3,7 @@
 import json
 import logging
 from psycopg2.extras import RealDictCursor
-
+from services.db_service import add_llm_usage
 from services.openai_client import client, DEPLOYMENT
 
 
@@ -187,7 +187,16 @@ def call_llm_for_progress_summary(
     )
 
     content = response.choices[0].message.content
-    return json.loads(content)
+    data = json.loads(content)
+
+    return {
+        "data": data,
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+    }
 
 
 def normalize_summary_3line(summary_3line):
@@ -340,10 +349,21 @@ def generate_progress_summary_for_event(conn, books_id: int, event_id: int):
 
     event_characters = fetch_event_characters(conn, event_id)
 
-    llm_result = call_llm_for_progress_summary(
+    openai_result = call_llm_for_progress_summary(
         previous_cumulative_summary,
         event_row,
         event_characters,
+    )
+
+    llm_result = openai_result["data"]
+    usage = openai_result["usage"]
+
+    add_llm_usage(
+        conn=conn,
+        books_id=books_id,
+        prompt_tokens=usage["prompt_tokens"],
+        completion_tokens=usage["completion_tokens"],
+        total_tokens=usage["total_tokens"]
     )
 
     upsert_progress_summary(conn, event_row, llm_result)

@@ -1,5 +1,5 @@
 import json
-
+from services.db_service import add_llm_usage
 from services.character_normalize_service import normalize_character_aliases
 
 
@@ -50,7 +50,18 @@ def run_normalize_characters(conn, books_id: int):
         print("=" * 80)
         print(json.dumps(character_candidates, ensure_ascii=False, indent=2))
 
-        result = normalize_character_aliases(character_candidates)
+        openai_result = normalize_character_aliases(character_candidates)
+
+        result = openai_result["data"]
+        usage = openai_result["usage"]
+
+        add_llm_usage(
+            conn=conn,
+            books_id=books_id,
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            total_tokens=usage["total_tokens"]
+        )
 
         print("=" * 80)
         print("CHARACTER NORMALIZE RESULT")

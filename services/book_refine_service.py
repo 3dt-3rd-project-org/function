@@ -1,6 +1,6 @@
 import json
 import logging
-
+from services.db_service import add_llm_usage
 from services.openai_client import client, DEPLOYMENT
 
 
@@ -36,7 +36,19 @@ def run_book_graph_refine(conn, books_id: int):
             "books_id": books_id,
             "characters": payload["characters"]
         }
-        character_result = call_character_refine_llm(character_payload)
+        character_openai_result = call_character_refine_llm(character_payload)
+
+        character_result = character_openai_result["data"]
+        character_usage = character_openai_result["usage"]
+
+        add_llm_usage(
+            conn=conn,
+            books_id=books_id,
+            prompt_tokens=character_usage["prompt_tokens"],
+            completion_tokens=character_usage["completion_tokens"],
+            total_tokens=character_usage["total_tokens"]
+        )
+
         result["characters"] = character_result.get("characters", [])
         logging.info("===== CHARACTER REFINE END =====")
 
@@ -46,7 +58,19 @@ def run_book_graph_refine(conn, books_id: int):
             "books_id": books_id,
             "events": payload["events"]
         }
-        event_result = call_event_refine_llm(event_payload)
+        event_openai_result = call_event_refine_llm(event_payload)
+
+        event_result = event_openai_result["data"]
+        event_usage = event_openai_result["usage"]
+
+        add_llm_usage(
+            conn=conn,
+            books_id=books_id,
+            prompt_tokens=event_usage["prompt_tokens"],
+            completion_tokens=event_usage["completion_tokens"],
+            total_tokens=event_usage["total_tokens"]
+        )
+
         result["events"] = event_result.get("events", [])
         logging.info("===== EVENT REFINE END =====")
 
@@ -56,7 +80,19 @@ def run_book_graph_refine(conn, books_id: int):
             "books_id": books_id,
             "relationships": payload["relationships"]
         }
-        relationship_result = call_relationship_refine_llm(relationship_payload)
+        relationship_openai_result = call_relationship_refine_llm(relationship_payload)
+
+        relationship_result = relationship_openai_result["data"]
+        relationship_usage = relationship_openai_result["usage"]
+
+        add_llm_usage(
+            conn=conn,
+            books_id=books_id,
+            prompt_tokens=relationship_usage["prompt_tokens"],
+            completion_tokens=relationship_usage["completion_tokens"],
+            total_tokens=relationship_usage["total_tokens"]
+        )
+
         result["relationships"] = relationship_result.get("relationships", [])
         logging.info("===== RELATIONSHIP REFINE END =====")
 
@@ -228,7 +264,17 @@ importance_score:
 
     logging.info("OpenAI character refine END")
 
-    return json.loads(response.choices[0].message.content)
+    content = response.choices[0].message.content
+    data = json.loads(content)
+
+    return {
+        "data": data,
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+    }
 
 
 def call_event_refine_llm(payload: dict):
@@ -293,7 +339,17 @@ is_sensitive:
 
     logging.info("OpenAI event refine END")
 
-    return json.loads(response.choices[0].message.content)
+    content = response.choices[0].message.content
+    data = json.loads(content)
+
+    return {
+        "data": data,
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+    }
 
 
 def call_relationship_refine_llm(payload: dict):
@@ -363,7 +419,17 @@ is_core_relation:
 
     logging.info("OpenAI relationship refine END")
 
-    return json.loads(response.choices[0].message.content)
+    content = response.choices[0].message.content
+    data = json.loads(content)
+
+    return {
+        "data": data,
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+    }
 
 
 def update_refine_result(conn, books_id: int, result: dict):

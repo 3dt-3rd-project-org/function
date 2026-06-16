@@ -55,4 +55,13 @@ def normalize_character_aliases(character_candidates: list[dict]) -> dict:
     )
 
     content = response.choices[0].message.content
-    return json.loads(content)
+    data = json.loads(content)
+
+    return {
+        "data": data,
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+    }

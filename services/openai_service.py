@@ -1,5 +1,5 @@
 import json
-
+import logging
 from services.openai_client import client, DEPLOYMENT
 
 
@@ -236,8 +236,15 @@ source와 target 작성 규칙:
         ]
         
     )
-
+  
     content = response.choices[0].message.content
+    data = json.loads(content)
 
-    return json.loads(content)
-
+    return {
+        "data": data,
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+    }

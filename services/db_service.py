@@ -256,3 +256,49 @@ def save_three_line_summary(user_id, book_id, chapter_id, summary):
             cur.close()
         if conn:
             conn.close()
+
+
+
+
+
+
+
+
+
+
+
+def add_llm_usage(
+    conn,
+    books_id: int,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int
+):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO llm_usage_log (
+                books_id,
+                request_count,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                status,
+                updated_at
+            )
+            VALUES (%s, 1, %s, %s, %s, 'processing', NOW())
+            ON CONFLICT (books_id)
+            DO UPDATE SET
+                request_count = llm_usage_log.request_count + 1,
+                prompt_tokens = llm_usage_log.prompt_tokens + EXCLUDED.prompt_tokens,
+                completion_tokens = llm_usage_log.completion_tokens + EXCLUDED.completion_tokens,
+                total_tokens = llm_usage_log.total_tokens + EXCLUDED.total_tokens,
+                updated_at = NOW();
+            """,
+            (
+                books_id,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens
+            )
+        )
