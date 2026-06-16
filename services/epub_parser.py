@@ -10,7 +10,24 @@ def clean_text(text: str) -> str:
 
 
 def is_body_section(item_name: str) -> bool:
-    return bool(re.search(r"Section\d+\.xhtml$", item_name))
+    name = item_name.lower()
+
+    # 표지, 라이선스, 목차 제외
+    exclude_patterns = [
+        "cover",
+        "license",
+        "nav",
+        "toc",
+        "title",
+    ]
+
+    if any(x in name for x in exclude_patterns):
+        return False
+
+    # 본문 파일 패턴 허용
+    return bool(
+        re.search(r"(section|chap|chapter)\d+\.x?html$", name)
+    )
 
 
 def parse_epub(epub_path: str):
