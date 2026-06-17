@@ -60,6 +60,30 @@ def get_or_create_character(cur, books_id, name, role=None, description=None):
     return cur.fetchone()[0]
 
 
+def get_paragraph_id_by_order(cur, books_id, chapter_id, paragraph_order):
+    if paragraph_order is None:
+        return None
+
+    try:
+        paragraph_order = int(paragraph_order)
+    except (TypeError, ValueError):
+        return None
+
+    cur.execute(
+        """
+        SELECT paragraph_id
+        FROM paragraph
+        WHERE books_id = %s
+          AND chapter_id = %s
+          AND paragraph_order = %s;
+        """,
+        (books_id, chapter_id, paragraph_order)
+    )
+
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 def run_save_normalized_analysis(conn, books_id: int):
     with conn.cursor() as cur:
 
@@ -78,7 +102,6 @@ def run_save_normalized_analysis(conn, books_id: int):
 
         if not rows:
             return {"error": "chapter_analysis_raw not found"}
-
 
         character_name_to_id = {}
         saved_event_count = 0
@@ -120,8 +143,23 @@ def run_save_normalized_analysis(conn, books_id: int):
                 short_title = ev.get("short_title")
                 summary = ev.get("summary")
                 evidence = ev.get("evidence")
+
                 start_po = ev.get("start_paragraph_order")
                 end_po = ev.get("end_paragraph_order")
+
+                start_paragraph_id = get_paragraph_id_by_order(
+                    cur,
+                    books_id,
+                    chapter_id,
+                    start_po
+                )
+
+                end_paragraph_id = get_paragraph_id_by_order(
+                    cur,
+                    books_id,
+                    chapter_id,
+                    end_po
+                )
 
                 cur.execute(
                     """
@@ -152,8 +190,8 @@ def run_save_normalized_analysis(conn, books_id: int):
                         short_title,
                         summary,
                         evidence,
-                        start_po,
-                        end_po
+                        start_paragraph_id,
+                        end_paragraph_id
                     )
                 )
 

@@ -6,6 +6,57 @@ from services.openai_service import extract_chapter_analysis
 from services.db_service import add_llm_usage
 
 
+def is_content_filter_error(error: Exception) -> bool:
+    error_text = str(error)
+
+    return (
+        "content_filter" in error_text
+        or "ResponsibleAIPolicyViolation" in error_text
+    )
+
+
+def save_filtered_chapter(
+    cur,
+    books_id: int,
+    chapter_id: int,
+    chapter_order: int,
+    chapter_title: str
+):
+    empty_result = {
+        "characters": [],
+        "events": [],
+        "relationships": []
+    }
+
+    cur.execute(
+        """
+        INSERT INTO chapter_analysis_raw (
+            books_id,
+            chapter_id,
+            chapter_order,
+            chapter_title,
+            raw_json,
+            status,
+            updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s::jsonb, 'FILTERED', CURRENT_TIMESTAMP)
+        ON CONFLICT (books_id, chapter_id)
+        DO UPDATE SET
+            chapter_order = EXCLUDED.chapter_order,
+            chapter_title = EXCLUDED.chapter_title,
+            raw_json = EXCLUDED.raw_json,
+            status = 'FILTERED',
+            updated_at = CURRENT_TIMESTAMP;
+        """,
+        (
+            books_id,
+            chapter_id,
+            chapter_order,
+            chapter_title,
+            json.dumps(empty_result, ensure_ascii=False)
+        )
+    )
+
 
 def run_openai_extract_chapter(conn, books_id: int, chapter_id: int):
     with conn.cursor() as cur:
@@ -89,6 +140,7 @@ def run_openai_extract_chapter(conn, books_id: int, chapter_id: int):
 
             except Exception as e:
                 last_error = e
+
                 logging.exception(
                     "GPT extract failed. books_id=%s, chapter_id=%s, attempt=%s/%s",
                     books_id,
@@ -97,10 +149,41 @@ def run_openai_extract_chapter(conn, books_id: int, chapter_id: int):
                     max_retries
                 )
 
+                if is_content_filter_error(e):
+                    logging.warning(
+                        "Content filter detected. Stop retry and save as FILTERED. books_id=%s, chapter_id=%s",
+                        books_id,
+                        chapter_id
+                    )
+                    break
+
                 if attempt < max_retries:
                     time.sleep(2)
 
         if result is None:
+            if is_content_filter_error(last_error):
+                save_filtered_chapter(
+                    cur=cur,
+                    books_id=books_id,
+                    chapter_id=chapter_id,
+                    chapter_order=chapter_order,
+                    chapter_title=chapter_title
+                )
+
+                conn.commit()
+
+                return {
+                    "status": "filtered",
+                    "message": "chapter skipped by Azure OpenAI content filter",
+                    "books_id": books_id,
+                    "chapter_id": chapter_id,
+                    "chapter_order": chapter_order,
+                    "chapter_title": chapter_title,
+                    "character_count": 0,
+                    "event_count": 0,
+                    "relationship_count": 0
+                }
+
             raise last_error
 
         cur.execute(
