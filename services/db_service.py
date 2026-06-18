@@ -181,8 +181,17 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
 
         # 사건 데이터 주입
         for ev in event_rows:
+
+            # 중요도 0.6 이상 또는 핵심 사건만 저장
+            if not (
+                (ev.get("importance_score") or 0) >= 0.6
+                or ev.get("is_core_event")
+            ):
+                continue
+
             ch_id = str(ev["chapter_id"])
             chapters_map[ch_id]["events"].append({
+                "event_id": ev["event_id"],
                 "summary": ev["summary"],
                 "start_paragraph_order": ev["start_paragraph_id"],
                 "end_paragraph_order": ev["end_paragraph_id"],
@@ -194,6 +203,14 @@ def fetch_and_transform_chapter_raw(conn, target_books_id: int):
 
         # 관계 데이터 주입
         for rel in rel_rows:
+
+            # 중요 관계만 저장
+            if not (
+                (rel.get("importance_score") or 0) >= 0.6
+                or rel.get("is_core_relation")
+            ):
+                continue
+
             ch_id = str(rel["chapter_id"])
             chapters_map[ch_id]["relationships"].append({
                 "source": char_name_map.get(rel["source_character_id"], "Unknown"),
